@@ -357,6 +357,21 @@ def _resolve_runtime_agent_kwargs() -> dict:
     }
 
 
+def _discover_gateway_context_files(cwd: str | None = None) -> list[str]:
+    """Discover context files for gateway sessions using the prompt-builder resolver."""
+    try:
+        from agent.prompt_builder import discover_loaded_context_files
+    except Exception:
+        return []
+
+    _cwd = cwd or os.getenv("TERMINAL_CWD") or os.getcwd()
+    try:
+        return discover_loaded_context_files(cwd=_cwd)
+    except Exception as exc:
+        logger.debug("gateway context discovery failed for cwd=%s: %s", _cwd, exc)
+        return []
+
+
 def _build_media_placeholder(event) -> str:
     """Build a text placeholder for media-only events so they aren't dropped.
 
@@ -3471,6 +3486,15 @@ class GatewayRunner:
                 "session_id": session_entry.session_id,
                 "session_key": session_key,
             })
+
+            _context_cwd = os.getenv("TERMINAL_CWD") or os.getcwd()
+            _loaded_context_files = _discover_gateway_context_files(cwd=_context_cwd)
+            logger.info(
+                "gateway session bootstrap: session=%s cwd=%s context_files=%s",
+                session_key,
+                _context_cwd,
+                _loaded_context_files or ["(none)"],
+            )
         
         # Build session context
         context = build_session_context(source, self.config, session_entry)

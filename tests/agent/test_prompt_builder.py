@@ -18,6 +18,7 @@ from agent.prompt_builder import (
     build_skills_system_prompt,
     build_nous_subscription_prompt,
     build_context_files_prompt,
+    discover_loaded_context_files,
     build_environment_hints,
     CONTEXT_FILE_MAX_CHARS,
     DEFAULT_AGENT_IDENTITY,
@@ -515,11 +516,18 @@ class TestBuildContextFilesPrompt:
         assert "## SOUL.md" not in result
 
     def test_empty_soul_md_adds_nothing(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_home"))
         hermes_home = tmp_path / "hermes_home"
         hermes_home.mkdir()
         (hermes_home / "SOUL.md").write_text("\n\n", encoding="utf-8")
-        result = build_context_files_prompt(cwd=str(tmp_path))
+
+        fake_home = tmp_path / "fake_home"
+        fake_home.mkdir()
+        with patch("pathlib.Path.home", return_value=fake_home):
+            result = build_context_files_prompt(cwd=str(tmp_path))
+
         assert result == ""
 
     def test_blocks_injection_in_agents_md(self, tmp_path):
@@ -599,22 +607,22 @@ class TestBuildContextFilesPrompt:
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "BLOCKED" in result
 
-    def test_hermes_md_beats_agents_md(self, tmp_path):
-        """When both exist, .hermes.md wins and AGENTS.md is not loaded."""
+    def test_hermes_md_and_agents_md_both_load(self, tmp_path):
+        """Repo constraints keep loading even when .hermes.md exists."""
         (tmp_path / "AGENTS.md").write_text("Agent guidelines here.")
         (tmp_path / ".hermes.md").write_text("Hermes project rules.")
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "Hermes project rules" in result
-        assert "Agent guidelines" not in result
+        assert "Agent guidelines" in result
 
-    def test_agents_md_beats_claude_md(self, tmp_path):
+    def test_agents_and_claude_md_both_load(self, tmp_path):
         (tmp_path / "AGENTS.md").write_text("Agent guidelines here.")
         (tmp_path / "CLAUDE.md").write_text("Claude guidelines here.")
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "Agent guidelines" in result
-        assert "Claude guidelines" not in result
+        assert "Claude guidelines" in result
 
-    def test_claude_md_beats_cursorrules(self, tmp_path):
+    def test_claude_md_blocks_cursorrules_fallback(self, tmp_path):
         (tmp_path / "CLAUDE.md").write_text("Claude guidelines here.")
         (tmp_path / ".cursorrules").write_text("Cursor rules here.")
         result = build_context_files_prompt(cwd=str(tmp_path))
@@ -632,6 +640,33 @@ class TestBuildContextFilesPrompt:
         (tmp_path / "claude.md").write_text("Lowercase claude rules.")
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "Lowercase claude rules" in result
+
+    def test_loads_user_level_claude_md(self, tmp_path):
+        from unittest.mock import patch
+
+        fake_home = tmp_path / "home"
+        user_claude_dir = fake_home / ".claude"
+        user_claude_dir.mkdir(parents=True)
+        (user_claude_dir / "CLAUDE.md").write_text("User-level standards.")
+
+        with patch("pathlib.Path.home", return_value=fake_home):
+            result = build_context_files_prompt(cwd=str(tmp_path))
+
+        assert "User-level standards" in result
+        assert "~/.claude/CLAUDE.md" in result
+
+    def test_discover_loaded_context_files_handles_missing_user_claude(self, tmp_path):
+        from unittest.mock import patch
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (tmp_path / "AGENTS.md").write_text("Repo constraints.")
+
+        with patch("pathlib.Path.home", return_value=fake_home):
+            labels = discover_loaded_context_files(cwd=str(tmp_path), skip_soul=True)
+
+        assert "~/.claude/CLAUDE.md" not in labels
+        assert "AGENTS.md" in labels
 
     @pytest.mark.skipif(
         sys.platform == "darwin",
@@ -653,17 +688,18 @@ class TestBuildContextFilesPrompt:
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "BLOCKED" in result
 
-    def test_hermes_md_beats_all_others(self, tmp_path):
-        """When all four types exist, only .hermes.md is loaded."""
+    def test_hermes_md_can_coexist_with_other_repo_context(self, tmp_path):
+        """.hermes.md loads without suppressing AGENTS.md / CLAUDE.md."""
         (tmp_path / ".hermes.md").write_text("Hermes wins.")
-        (tmp_path / "AGENTS.md").write_text("Agents lose.")
-        (tmp_path / "CLAUDE.md").write_text("Claude loses.")
-        (tmp_path / ".cursorrules").write_text("Cursor loses.")
+        (tmp_path / "AGENTS.md").write_text("Agents rules.")
+        (tmp_path / "CLAUDE.md").write_text("Claude rules.")
+        (tmp_path / ".cursorrules").write_text("Cursor rules.")
         result = build_context_files_prompt(cwd=str(tmp_path))
         assert "Hermes wins" in result
-        assert "Agents lose" not in result
-        assert "Claude loses" not in result
-        assert "Cursor loses" not in result
+        assert "Agents rules" in result
+        assert "Claude rules" in result
+        # Cursorrules stays fallback-only when AGENTS/CLAUDE are present.
+        assert "Cursor rules" not in result
 
     def test_cursorrules_loads_when_only_option(self, tmp_path):
         """Cursorrules still loads when no higher-priority files exist."""
