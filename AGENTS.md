@@ -2,6 +2,23 @@
 
 Instructions for AI coding assistants and developers working on the hermes-agent codebase.
 
+## Strategic Role: Claude Code Backup/Alternative
+
+Hermes should be developed and operated as a reliable backup and practical alternative to Claude Code for day-to-day project execution.
+
+Operating model and context hierarchy:
+1. `~/projects/` is the active workspace root for user projects.
+2. Primary user-level guidance lives in `~/.claude/CLAUDE.md`.
+3. Project-specific guidance may also exist in each repo's `CLAUDE.md`.
+4. Repo-local `AGENTS.md` (this file) defines Hermes-specific implementation and contribution rules.
+
+When working in any project under `~/projects/`, agents should read `~/.claude/CLAUDE.md` first, then repo `CLAUDE.md` (if present), then this `AGENTS.md` for Hermes architecture/tooling constraints.
+
+Development priority for this role:
+- Maintain strong parity with Claude Code core workflows (planning, editing, testing, git, PR support).
+- Favor reliability, inspectability, and safe fallbacks over clever one-off behavior.
+- Keep cross-agent workflows healthy so users can switch between Claude Code and Hermes without friction.
+
 ## Development Environment
 
 ```bash

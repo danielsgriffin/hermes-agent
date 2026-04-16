@@ -2992,6 +2992,13 @@ class HermesCLI:
                 tuple(runtime.get("args") or ()),
             )
 
+            try:
+                from agent.prompt_builder import discover_loaded_context_files
+                _context_cwd = os.getenv("TERMINAL_CWD") or os.getcwd()
+                self._startup_context_files = discover_loaded_context_files(cwd=_context_cwd)
+            except Exception:
+                self._startup_context_files = []
+
             if self._pending_title and self._session_db:
                 try:
                     self._session_db.set_session_title(self.session_id, self._pending_title)
@@ -3786,10 +3793,18 @@ class HermesCLI:
         if self._provider_source:
             provider_info += f" [dim {separator_color}]·[/] [dim]auth: {self._provider_source}[/]"
 
+        context_info = ""
+        loaded_contexts = getattr(self, "_startup_context_files", None) or []
+        if loaded_contexts:
+            preview = ", ".join(loaded_contexts[:3])
+            if len(loaded_contexts) > 3:
+                preview += f", +{len(loaded_contexts) - 3}"
+            context_info = f" [dim {separator_color}]·[/] [dim]context: {preview}[/]"
+
         self.console.print(
             f"  {api_indicator} [{accent_color}]{model_short}[/] "
             f"[dim {separator_color}]·[/] [bold {label_color}]{tool_count} tools[/]"
-            f"{toolsets_info}{provider_info}"
+            f"{toolsets_info}{provider_info}{context_info}"
         )
 
     def _show_session_status(self):

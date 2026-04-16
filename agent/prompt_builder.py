@@ -973,6 +973,54 @@ def _load_claude_md(cwd_path: Path) -> str:
     return ""
 
 
+def _load_user_claude_md() -> str:
+    """~/.claude/CLAUDE.md / ~/.claude/claude.md — user-level guidance."""
+    claude_dir = Path.home() / ".claude"
+    for name in ["CLAUDE.md", "claude.md"]:
+        candidate = claude_dir / name
+        if candidate.exists():
+            try:
+                content = candidate.read_text(encoding="utf-8").strip()
+                if content:
+                    label = f"~/.claude/{name}"
+                    content = _scan_context_content(content, label)
+                    result = f"## {label}\n\n{content}"
+                    return _truncate_content(result, "~/.claude/CLAUDE.md")
+            except Exception as e:
+                logger.debug("Could not read %s: %s", candidate, e)
+    return ""
+
+
+def discover_loaded_context_files(cwd: Optional[str] = None, skip_soul: bool = False) -> list[str]:
+    """Return a human-readable list of context files that would be loaded."""
+    if cwd is None:
+        cwd = os.getcwd()
+
+    cwd_path = Path(cwd).resolve()
+    labels: list[str] = []
+
+    def _add(label: str, content: str) -> None:
+        if content and label not in labels:
+            labels.append(label)
+
+    _add("~/.claude/CLAUDE.md", _load_user_claude_md())
+
+    agents_md = _load_agents_md(cwd_path)
+    project_claude = _load_claude_md(cwd_path)
+    _add("AGENTS.md", agents_md)
+    _add("CLAUDE.md", project_claude)
+
+    if _load_hermes_md(cwd_path):
+        labels.append(".hermes.md/HERMES.md")
+    elif not agents_md and not project_claude and _load_cursorrules(cwd_path):
+        labels.append(".cursorrules/.cursor/rules")
+
+    if not skip_soul and load_soul_md():
+        labels.append("SOUL.md")
+
+    return labels
+
+
 def _load_cursorrules(cwd_path: Path) -> str:
     """.cursorrules + .cursor/rules/*.mdc — cwd only."""
     cursorrules_content = ""
@@ -1006,11 +1054,12 @@ def _load_cursorrules(cwd_path: Path) -> str:
 def build_context_files_prompt(cwd: Optional[str] = None, skip_soul: bool = False) -> str:
     """Discover and load context files for the system prompt.
 
-    Priority (first found wins — only ONE project context type is loaded):
-      1. .hermes.md / HERMES.md  (walk to git root)
+    Context loading order:
+      1. ~/.claude/CLAUDE.md     (user-level, when present)
       2. AGENTS.md / agents.md   (cwd only)
       3. CLAUDE.md / claude.md   (cwd only)
-      4. .cursorrules / .cursor/rules/*.mdc  (cwd only)
+      4. .hermes.md / HERMES.md  (walk to git root)
+      5. .cursorrules / .cursor/rules/*.mdc  (cwd fallback)
 
     SOUL.md from HERMES_HOME is independent and always included when present.
     Each context source is capped at 20,000 chars.
@@ -1024,15 +1073,25 @@ def build_context_files_prompt(cwd: Optional[str] = None, skip_soul: bool = Fals
     cwd_path = Path(cwd).resolve()
     sections = []
 
-    # Priority-based project context: first match wins
-    project_context = (
-        _load_hermes_md(cwd_path)
-        or _load_agents_md(cwd_path)
-        or _load_claude_md(cwd_path)
-        or _load_cursorrules(cwd_path)
-    )
+    user_claude = _load_user_claude_md()
+    if user_claude:
+        sections.append(user_claude)
+
+    agents_md = _load_agents_md(cwd_path)
+    if agents_md:
+        sections.append(agents_md)
+
+    project_claude = _load_claude_md(cwd_path)
+    if project_claude:
+        sections.append(project_claude)
+
+    project_context = _load_hermes_md(cwd_path)
     if project_context:
         sections.append(project_context)
+    elif not agents_md and not project_claude:
+        fallback_context = _load_cursorrules(cwd_path)
+        if fallback_context:
+            sections.append(fallback_context)
 
     # SOUL.md from HERMES_HOME only — skip when already loaded as identity
     if not skip_soul:
