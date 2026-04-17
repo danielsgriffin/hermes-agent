@@ -19,6 +19,17 @@ Development priority for this role:
 - Favor reliability, inspectability, and safe fallbacks over clever one-off behavior.
 - Keep cross-agent workflows healthy so users can switch between Claude Code and Hermes without friction.
 
+## Ghostty Dispatch Workflow (macOS)
+
+When dispatching work into a new Ghostty tab, launch Hermes itself (not just a shell command):
+
+- Interactive worker tab:
+  - `ghostty-tab "cd /Users/dsg/projects/hermes-agent && /Users/dsg/projects/hermes-agent/.venv/bin/hermes"`
+- One-shot worker tab:
+  - `ghostty-tab "cd /Users/dsg/projects/hermes-agent && /Users/dsg/projects/hermes-agent/.venv/bin/hermes chat -q '<prompt>'"`
+
+Do not treat a successful shell command in a new tab as a valid dispatch if Hermes did not actually start.
+
 ## Development Environment
 
 ```bash
